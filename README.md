@@ -27,23 +27,37 @@ el terreno.
 - `PROTOCOLS-RPC-AND-MESSAGING.md` — no usamos gRPC, brokers ni colas; lo que hay de HTTP está en
   las clases web.
 
-## Qué queda heredado (y qué falta)
+## Qué queda heredado del original
 
-Los archivos de método siguen como vinieron del original, en inglés, porque funcionan y son la
-referencia del formato: `RECONNAISSANCE.md`, `HUNTING.md`, `VALIDATION-AND-REPORTING.md`,
-`WEB-PROTOCOL-AND-AUTH.md`, `CLIENT-SIDE.md`, `CLOUD-AND-DEPLOYMENT.md`,
-`DATA-ISOLATION-AND-LIFECYCLE.md`, `SUPPLY-CHAIN-AND-RELEASE.md`,
-`RESOURCE-EXHAUSTION-AND-AVAILABILITY.md`, `MEMORY-SAFETY-AND-BINARY.md`, `AI-AND-LLM.md`.
+- Los **validadores** y el esquema, que **son la parte que hace que el método no sea un prompt
+  lindo**: `report-schema.json`, `validate-findings.cjs` y `validate-coverage-ledger.cjs`. Cero
+  dependencias, se corren con `node`, y **cortan el proceso si el informe no cierra**. No se tocaron
+  a propósito: validan **estructura**, no prosa, así que las claves de los JSON siguen en inglés y
+  la prosa de este skill está en español. Los dos se verifican con sus propios tests:
 
-Y los validadores, que **son la parte que hace que el método no sea un prompt lindo**:
+  ```sh
+  node validate-findings.test.cjs            # 34 pruebas
+  node validate-coverage-ledger.test.cjs     # 31 pruebas
+  ```
 
-- `report-schema.json` — el esquema de los tres veredictos.
-- `validate-findings.cjs` y `validate-coverage-ledger.cjs` — cero dependencias, se corren con
-  `node` y **cortan el proceso si el informe no cierra**.
+- **Los nombres de archivo y las claves del contrato.** El ledger y los `findings.json` se llaman
+  así y usan claves en inglés (`coverage_id`, `fingerprint`, `root_cause`, `needs_validation`…)
+  porque el esquema y los validadores las exigen. Traducir la prosa no cambia las claves.
 
-Pendiente para la segunda pasada: traducir esos textos y reescribir los prompts de cazador para
-nuestro idioma y nuestro listón de evidencia. Los validadores no hace falta tocarlos: validan
-estructura, no prosa.
+## Estado de la adaptación
+
+Todo el texto del skill —los tres archivos de método, los siete compañeros de dominio y las dos
+clases propias— está en español rioplatense y aterrizado en nuestro entorno. El método de seis
+fases, los contratos y las tablas de estados se conservan tal cual vinieron.
+
+Lo que se adaptó de fondo, además del idioma: **la ejecución**. El original gira alrededor de un
+sandbox del sistema operativo (ejecutar el objetivo con red cortada, entorno vacío y límites) y de
+un procedimiento de once pasos para promover artefactos desde ese sandbox. Acá no hay sandbox, así
+que ese aparato se reemplazó por la regla opuesta: **no se ejecuta código ajeno**, se observa en
+modo lectura lo propio, y lo que necesite ejecutar algo de un tercero queda como `needs_validation`
+con el bloqueo exacto. Eso toca `SKILL.md`, `HUNTING.md` (el prompt del cazador) y
+`VALIDATION-AND-REPORTING.md` (el del verificador).
+
 
 ## Cómo se usa
 

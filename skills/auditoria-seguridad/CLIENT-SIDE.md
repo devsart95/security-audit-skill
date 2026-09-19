@@ -1,83 +1,150 @@
-# Client-Side and Browser Hunting
+# Caza de cliente y navegador
 
-#### When to use this file
+#### Cuándo usar este archivo
 
-Reach for this file when meaningful trust decisions or untrusted rendering happen in a browser: single-page apps, browser extensions, embedded webviews, service workers, offline applications, and code that renders attacker-influenceable content into the DOM, receives cross-window messages, or uses browser storage. These paths include sources the server never sees, such as URL fragments, `window.name`, `postMessage`, and previously cached content.
+Echar mano de este archivo cuando las decisiones de confianza o el renderizado de datos no
+confiables ocurran en un navegador: aplicaciones de una sola página, extensiones de navegador,
+webviews embebidas, service workers, aplicaciones offline, y código que renderiza contenido
+influenciable por el atacante en el DOM, recibe mensajes entre ventanas o usa el almacenamiento del
+navegador. Estos caminos incluyen fuentes que el servidor nunca ve, como el fragmento de la URL,
+`window.name`, `postMessage` y contenido ya cacheado.
 
-Use alongside `ATTACK-CLASSES.md`. This file covers browser sources and sinks, origin boundaries, browser persistence, and cross-site state oracles. Use `WEB-PROTOCOL-AND-AUTH.md` for server-side CSRF, sessions, and auth callbacks.
+En nuestro terreno es la UI propia (Next.js 16 + React 19) y su panel del Core, publicados por los
+túneles `cloudflared`.
 
-## Core discipline (include in every agent prompt for this domain)
+Se usa junto con `ATTACK-CLASSES.md`. Este archivo cubre fuentes y sumideros del navegador, fronteras
+de origen, persistencia del navegador y oráculos de estado entre sitios. Para CSRF del lado del
+servidor, sesiones y callbacks de autenticación, usar `WEB-PROTOCOL-AND-AUTH.md`.
+
+## Disciplina central (incluir en cada prompt de agente de este dominio)
 
 ```
-- A client-side candidate needs a controllable source and an executing or disclosing sink. Name both and show attacker-influenced data reaching the sink.
-- The impact must reach a victim's session, another origin, or shared persistence. Self-injection and disclosure of the attacker's own data are not findings.
-- Framework escaping, browser same-origin policy, CSP, COOP/CORP, service-worker scope, and modern noopener defaults are real controls. Verify them before assigning impact.
-- Browser storage and caches are shared by origin and may outlive login state. Identify who writes, who reads, and which account, tenant, or worker lifecycle clears each record.
-- Use `confirmed` only for complete source evidence plus bounded local browser tests. Use `needs_validation` when renderer, extension permission, deployed header, or browser-policy behavior is required but unavailable.
+- Un candidato del lado del cliente necesita una fuente controlable y un sumidero que ejecute o divulgue. Nombrar los dos y mostrar el dato influenciado por el atacante llegando al sumidero.
+- El impacto tiene que alcanzar la sesión de una víctima, otro origen o una persistencia compartida. La auto-inyección y la divulgación de los datos del propio atacante no son hallazgos.
+- El escape del framework, la política de mismo origen del navegador, CSP, COOP/CORP, el alcance del service worker y los valores por defecto modernos de noopener son controles reales. Verificarlos antes de asignar impacto.
+- El almacenamiento y las cachés del navegador se comparten por origen y pueden sobrevivir al estado de login. Identificar quién escribe, quién lee y qué cuenta, inquilino o ciclo de vida del worker limpia cada registro.
+- Usar `confirmado` sólo con evidencia de código completa más pruebas locales acotadas en el navegador. Usar `needs_validation` cuando haga falta el renderer, un permiso de extensión, un header desplegado o un comportamiento de política del navegador y no esté disponible.
 ```
 
-## DOM and object-state attack classes (subagent_type: `general`)
+## Clases de ataque de DOM y estado de objetos (subagent_type: `general`)
 
-**DOM-based XSS**
-Trace `location` fields, `document.referrer`, `window.name`, message data, storage, and browser-controlled document state into `innerHTML`, `outerHTML`, `document.write`, string-evaluating APIs, executable URLs, jQuery HTML APIs, or framework escape hatches. Interpolation escaped by the framework is not a finding.
+**XSS basado en DOM**
+Trazar campos de `location`, `document.referrer`, `window.name`, datos de mensajes, almacenamiento y
+estado del documento controlado por el navegador hacia `innerHTML`, `outerHTML`, `document.write`,
+APIs que evalúan strings, URLs ejecutables, APIs HTML de jQuery o las escotillas de escape del
+framework. Una interpolación que el framework escapa no es un hallazgo.
 
-**DOM clobbering**
-Attacker-injected `id` or `name` attributes shadow a global, form property, configuration object, or initialization flag later trusted by code. Require both a markup path that preserves the attribute and a security-relevant use of the clobbered value.
+**Clobbering del DOM**
+Atributos `id` o `name` inyectados por el atacante tapan un global, una propiedad de formulario, un
+objeto de configuración o una bandera de inicialización en la que el código confía después. Se
+exigen las dos cosas: un camino de marcado que preserve el atributo y un uso relevante para la
+seguridad del valor tapado.
 
-**Prototype pollution and gadget chain**
-An attacker-controlled key reaches a recursive write such as deep merge or path assignment and modifies prototype state. Then a reachable gadget consumes the polluted property to change authorization, execution, navigation, or rendering. `JSON.parse`, a shallow copy, or pollution without a gadget is not enough.
+**Contaminación de prototipos y cadena de gadgets**
+Una clave controlada por el atacante llega a una escritura recursiva, como un merge profundo o una
+asignación de ruta, y modifica el estado de un prototipo. Después un gadget alcanzable consume la
+propiedad contaminada para cambiar autorización, ejecución, navegación o renderizado. `JSON.parse`,
+una copia superficial o una contaminación sin gadget no alcanzan.
 
-## Cross-origin messaging and network attack classes (subagent_type: `general`)
+## Clases de ataque de mensajería entre orígenes y red (subagent_type: `general`)
 
-**`postMessage` origin and source trust**
-A handler performs a sensitive action with `event.data` without an exact origin allowlist and, where multiple frames share an origin, the expected `event.source`. On the send side, sensitive data sent to `*` reaches an unintended embedder. Weak substring, prefix, suffix, or unanchored-regex origin matching is not an origin check.
+**Origen y fuente en `postMessage`**
+Un handler hace una acción sensible con `event.data` sin lista blanca exacta de origen y, donde
+varios frames comparten origen, sin el `event.source` esperado. Del lado del envío, datos sensibles
+mandados a `*` llegan a un embedder no previsto. Un chequeo de origen por subcadena, prefijo,
+sufijo o regex sin ancla no es un chequeo de origen.
 
-**Cross-site WebSocket request use**
-A WebSocket upgrade accepts ambient cookies from an untrusted origin without an `Origin` check or channel-specific token, allowing the victim's session to read or mutate data. Confirm both the upgrade behavior and a security-relevant message handler.
+**Uso de pedidos WebSocket entre sitios**
+Un upgrade de WebSocket acepta cookies ambientales de un origen no confiable sin chequeo de `Origin`
+ni token propio del canal, lo que deja que la sesión de la víctima lea o mute datos. Confirmar tanto
+el comportamiento del upgrade como un handler de mensajes relevante para la seguridad.
 
-**Credentialed CORS trust**
-The server reflects or weakly matches `Origin` while allowing credentials and returns sensitive responses. A bare wildcard with credentials is rejected by browsers; report only the actual reflected/allowed origin path and cross-origin data or mutation.
+**Confianza en CORS con credenciales**
+El servidor refleja o compara débilmente `Origin` mientras permite credenciales y devuelve
+respuestas sensibles. Un comodín pelado con credenciales lo rechazan los navegadores; reportar sólo
+el camino real de origen reflejado o permitido y la lectura o mutación entre orígenes.
 
-## Service-worker and browser-storage attack classes (subagent_type: `general`)
+## Clases de ataque de service worker y almacenamiento del navegador (subagent_type: `general`)
 
-**Service-worker registration and scope takeover**
-Attacker-influenceable content can become the registered worker script, control a path that receives an over-broad `Service-Worker-Allowed` scope, or alter update imports without integrity control. Verify the final script URL, response MIME type, origin, scope, and who controls every imported script. A normal same-origin worker with intended scope is not a defect.
+**Registro de service worker y toma de alcance**
+Contenido influenciable por el atacante puede convertirse en el script del worker registrado,
+controlar una ruta que recibe un alcance `Service-Worker-Allowed` demasiado ancho, o alterar los
+imports de actualización sin control de integridad. Verificar la URL final del script, el MIME type
+de la respuesta, el origen, el alcance y quién controla cada script importado. Un worker normal de
+mismo origen con el alcance previsto no es un defecto.
 
-**Service-worker cache and identity confusion**
-The worker caches personalized responses without including account, tenant, authorization state, or request mode in its policy, then serves them after account switch or logout. Review fetch-event routing, cache names and keys, navigation fallbacks, cache cleanup, and whether error/offline paths return another user's prior response.
+**Caché del service worker y confusión de identidad**
+El worker cachea respuestas personalizadas sin incluir cuenta, inquilino, estado de autorización o
+modo del pedido en su política, y después las sirve tras un cambio de cuenta o un cierre de sesión.
+Revisar el ruteo del evento fetch, los nombres y claves de caché, los fallbacks de navegación, la
+limpieza de caché, y si los caminos de error u offline devuelven la respuesta previa de otro usuario.
 
-**Browser-storage disclosure and stale authorization**
-Tokens, private responses, draft data, or authorization decisions remain in `localStorage`, `sessionStorage`, IndexedDB, Cache Storage, extension storage, or client state and become readable by another account or less-trusted same-origin component. Storage of a token alone is not a finding; require a realistic reader with less authority, or continued use after revocation/logout.
+**Divulgación en el almacenamiento del navegador y autorización vieja**
+Tokens, respuestas privadas, borradores o decisiones de autorización quedan en `localStorage`,
+`sessionStorage`, IndexedDB, Cache Storage, almacenamiento de extensiones o estado del cliente y se
+vuelven legibles por otra cuenta o por un componente de mismo origen de menor confianza. Guardar un
+token por sí solo no es un hallazgo; hace falta un lector realista con menos autoridad, o el uso
+continuado después de revocar o cerrar sesión.
 
-**Cross-context storage and broadcast confusion**
-`storage` events, `BroadcastChannel`, shared workers, or origin-wide caches carry identity or commands between tabs without binding them to the current session. Check account switching, private/public windows, tenant changes, and stale tabs that can overwrite newer auth state.
+**Confusión de almacenamiento y broadcast entre contextos**
+Eventos `storage`, `BroadcastChannel`, workers compartidos o cachés de todo el origen llevan
+identidad o comandos entre pestañas sin atarlos a la sesión actual. Revisar el cambio de cuenta,
+ventanas privadas y públicas, cambios de inquilino, y pestañas viejas que pueden pisar un estado de
+autenticación más nuevo.
 
-## Cross-site information leak classes (subagent_type: `general`)
+## Clases de fuga de información entre sitios (subagent_type: `general`)
 
-**XS-Leaks and cross-origin state oracles**
-An attacker page can distinguish protected cross-origin state through resource load/error events, frame or window state, redirect behavior, timing, cache state, or response size while the browser attaches victim credentials. Require one concrete secret-bearing predicate such as whether a private object, role, or account exists. Generic timing variance or public-resource availability is not a finding.
+**XS-Leaks y oráculos de estado entre orígenes**
+Una página del atacante puede distinguir estado protegido de otro origen mediante eventos de carga o
+error de recursos, estado de frame o ventana, comportamiento de redirección, tiempos, estado de
+caché o tamaño de la respuesta, mientras el navegador adjunta las credenciales de la víctima. Hace
+falta un predicado concreto que porte un secreto, como si existe un objeto privado, un rol o una
+cuenta. Una varianza genérica de tiempos o la disponibilidad de un recurso público no es un hallazgo.
 
-**Window and opener state disclosure**
-A cross-origin window's permitted metadata or navigation result reveals protected state, or a retained opener/named-window relationship lets an attacker-controlled page influence a privileged navigation. Check COOP, frame protections, `noopener`, exact origin, and whether the observable state is confidential.
+**Divulgación de estado por ventana y opener**
+Los metadatos permitidos de una ventana de otro origen o el resultado de una navegación revelan
+estado protegido, o una relación de opener o ventana con nombre retenida deja que una página
+controlada por el atacante influya en una navegación privilegiada. Revisar COOP, las protecciones de
+frame, `noopener`, el origen exacto, y si el estado observable es confidencial.
 
-## UI-redress and navigation attack classes (subagent_type: `general`)
+## Clases de ataque de UI-redress y navegación (subagent_type: `general`)
 
 **Clickjacking**
-A framed, state-changing action lacks effective `frame-ancestors`, `X-Frame-Options`, or equivalent UI isolation. Require the sensitive action and confirm it can complete in the framed state; missing headers on read-only content are hardening notes.
+Una acción que cambia estado y que se puede enmarcar no tiene `frame-ancestors`, `X-Frame-Options`
+ni un aislamiento de UI equivalente efectivo. Exigir la acción sensible y confirmar que puede
+completarse en el estado enmarcado; la falta de headers en contenido de sólo lectura son notas de
+endurecimiento.
 
-**Client-side navigation confusion**
-A client source controls redirect or navigation without scheme and destination policy, including executable `javascript:` or `data:` destinations. Reverse tabnabbing applies only where code explicitly keeps `window.opener`, uses `window.open` without isolation, or supports a browser without implicit `noopener`.
+**Confusión de navegación del lado del cliente**
+Una fuente del cliente controla la redirección o la navegación sin política de esquema y destino,
+incluidos destinos ejecutables como `javascript:` o `data:`. El reverse tabnabbing aplica sólo donde
+el código mantiene `window.opener` a propósito, usa `window.open` sin aislamiento, o soporta un
+navegador sin `noopener` implícito.
 
-## Universal moves (apply across the above)
+## Movimientos universales (aplican a todo lo de arriba)
 
-- Start from DOM, navigation, worker, message, and storage sinks, then trace backward to browser-only and server-controlled sources. Record the browser policy that should stop the path.
-- Test account switch, logout, worker update, offline fallback, and stale-tab state with a local test origin and dummy accounts. Do not use production users, origins, or shared services.
-- For XS-Leaks, list only predicates proved by source and local browser behavior. Then identify the response headers or rendering choice that would remove the oracle.
+- Arrancar por los sumideros de DOM, navegación, worker, mensajes y almacenamiento, y trazar hacia
+  atrás hasta las fuentes propias del navegador y las controladas por el servidor. Anotar la política
+  del navegador que debería frenar ese camino.
+- Probar el cambio de cuenta, el cierre de sesión, la actualización del worker, el fallback offline y
+  el estado de una pestaña vieja con un origen de prueba local y cuentas de mentira. No usar usuarios,
+  orígenes ni servicios compartidos de producción.
+- Para XS-Leaks, listar sólo los predicados probados por el código y el comportamiento local del
+  navegador. Después identificar el header de respuesta o la elección de renderizado que eliminaría
+  el oráculo.
 
-## Validation rules (apply before reporting ANY finding here)
+## Reglas de validación (aplican antes de reportar cualquier hallazgo de acá)
 
-1. Cite the source, sink, browser policy, affected origin/session, and observable mutation or disclosure.
-2. For prototype pollution, prove the recursive write and a security-relevant gadget. For DOM clobbering, prove the markup survives and the shadowed value is used.
-3. For service workers and storage, prove lifecycle reachability: an attacker-controlled write or cache entry must reach a different account, tenant, or later authorization state.
-4. For messaging, CORS, WebSocket, and XS-Leaks, show exact origin/source validation and the protected state or action exposed. Confirm that CSP, COOP/CORP, cookies, and SameSite policy do not already block it.
-5. Return `confirmed` findings only with a complete client path and bounded local evidence. Return `needs_validation` with the precise deployed header, extension permission, browser version, or renderer behavior an owner must verify.
+1. Citar la fuente, el sumidero, la política del navegador, el origen/sesión afectados y la mutación
+   o divulgación observable.
+2. Para contaminación de prototipos, probar la escritura recursiva y un gadget relevante para la
+   seguridad. Para clobbering del DOM, probar que el marcado sobrevive y que el valor tapado se usa.
+3. Para service workers y almacenamiento, probar la alcanzabilidad del ciclo de vida: una escritura o
+   entrada de caché controlada por el atacante tiene que llegar a otra cuenta, otro inquilino o un
+   estado de autorización posterior.
+4. Para mensajería, CORS, WebSocket y XS-Leaks, mostrar la validación exacta de origen y fuente, y el
+   estado o la acción protegidos que quedan expuestos. Confirmar que CSP, COOP/CORP, las cookies y la
+   política de `SameSite` no lo bloqueen ya.
+5. Devolver hallazgos `confirmado` sólo con un camino del cliente completo y evidencia local acotada.
+   Devolver `needs_validation` con el header desplegado, el permiso de extensión, la versión de
+   navegador o el comportamiento del renderer exactos que el dueño tiene que verificar.

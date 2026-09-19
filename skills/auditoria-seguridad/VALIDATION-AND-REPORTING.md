@@ -1,186 +1,213 @@
-# Validation, Structured Output, Verification, and Reporting
+# Validación, salida estructurada, verificación e informes
 
-### Phase 3: Independently validate every candidate
+### Fase 3: validar cada candidato, de forma independiente
 
-After the clean coverage-critic pass or an explicitly recorded early stop, consolidate Phase 2 candidates and carried same-source prior confirmations by stable fingerprint and root cause. Give every unique proposed `confirmed` and `needs_validation` candidate to a fresh `general` verifier that did not hunt it. A carried prior confirmation follows the same current verification path even though hunters exclude that unchanged root cause. A verifier may read hunter or prior artifacts but must re-read every cited current source location and independently run any decisive check it can reproduce safely.
+Después de la pasada limpia del crítico de cobertura —o de una parada temprana anotada— el padre
+consolida los candidatos por huella y causa raíz. Cada candidato único (`confirmado` o
+`needs_validation` propuesto) va a **un verificador fresco que no lo cazó**.
 
-Assign each verifier a canonical lowercase unique ID and `<output-dir>/agents/<verifier-id>/scratch/` plus parent-owned `artifacts/`. The verifier writes only to `scratch/` and never writes retained artifacts. It receives only the candidate, its linked coverage-unit checks and artifact paths, architecture facts needed to interpret the path, exact relevant companion validation blocks, the promotion procedure block below, the source/local execution boundary, the `confirmed`, `needs_validation`, and `rejected` branches of `report-schema.json` copied verbatim, and prior records with the same fingerprint. It must not receive another verifier's conclusion.
+Un verificador puede leer lo que produjo el cazador, pero **tiene que volver a leer cada ubicación
+citada del código actual** y reproducir por su cuenta cualquier chequeo decisivo que pueda hacer de
+forma segura (dentro de las reglas del terreno).
 
-#### Candidate-verifier prompt
+Se le da: el candidato, los chequeos y las rutas de la unidad ligada, los hechos de arquitectura
+necesarios para interpretar el camino, los bloques de validación del compañero que correspondan, el
+límite de ejecución permitido, las ramas `confirmed`, `needs_validation` y `rejected` de
+`report-schema.json` **textuales**, y los registros previos con la misma huella. **No recibe la
+conclusión de otro verificador.**
+
+#### Prompt del verificador de candidatos
 
 ```text
-You did not write this candidate. Try to refute it from repository source and bounded
-local evidence. Do not contact deployed endpoints or external/shared services. Run
-target-controlled code only inside the approved OS-enforced sandbox: no external
-network, empty allowlisted environment, read-only target and tools, scratch-only
-writes, and explicit low resource and wall-clock limits. If any control is unavailable,
-do not execute; retain the exact missing capability as a needs_validation blocker.
-Treat every scratch entry as target-controlled after execution. After the sandbox and
-all its processes terminate, only trusted parent-side code may promote a predeclared
-scratch-relative file, following the promotion procedure block included verbatim in
-this prompt. You and target code never write retained artifacts. If promotion is
-unavailable or fails, do not use that file as evidence.
+Este candidato no lo escribiste vos. Tratá de refutarlo desde el código del repo y desde evidencia
+local acotada.
 
-1. Verify every trace and evidence file, positive line number, scope, and description.
-   Confirm the first entry is a real lower-trust entrypoint and the last is the
-   claimed sink or boundary effect.
-2. Reconstruct the strongest source-visible validation, identity, authorization,
-   normalization, lifecycle, framework, and containment controls on the path.
-   Where the architecture summary names a comparable baseline, note whether it
-   shares the pattern — as calibration, never as grounds to dismiss.
-3. For a proposed confirmed candidate, independently reproduce the minimum observed
-   result when possible. Verify inputs, interface shape, conditions, and affected
-   dummy principal/resource. Do not infer a stronger result or continue after it.
-4. Verify that likelihood, impact, confidence, and the proposed source fix match only
-   what the evidence establishes.
-5. For a proposed needs_validation candidate, decide whether the blocker is genuinely
-   outside source/local observation. If source refutes the trace, reject it. If the
-   missing fact remains decisive, keep needs_validation and make the local and
-   owner-observed plans exact and non-destructive.
-6. Preserve the fingerprint for the same source-derived root cause across every state.
+Reglas del terreno: no contactes despliegues ni servicios externos o compartidos; no sondees
+internet ni terceros. En esta VM NO hay sandbox del sistema operativo, así que no ejecutes código
+que no sea nuestro. SÍ podés leer el código, observar en modo lectura lo propio (curl a 127.0.0.1,
+docker inspect, ss, logs) y correr nuestros scripts con datos de prueba en work/tmp, sin red.
 
-Return exactly one JSON object and no surrounding prose:
+Si la confirmación depende de ejecutar algo de un tercero, no lo hagas: dejá el `needs_validation`
+con el bloqueo exacto.
+
+1. Verificá cada traza y cada archivo de evidencia, el número de línea positivo, el alcance y la
+   descripción. Confirmá que la primera entrada sea un punto de entrada real de menor confianza y
+   que la última sea el sumidero o el efecto de frontera que se afirma.
+2. Reconstruí los controles más fuertes visibles en el código sobre ese camino: validación,
+   identidad, autorización, normalización, ciclo de vida, framework y contención.
+3. Para un candidato `confirmado`: reproducí por tu cuenta el resultado mínimo observado cuando sea
+   posible, respetando el límite de ejecución. Verificá entradas, forma de la interfaz, condiciones
+   y a quién afecta. No infieras un resultado más fuerte ni sigas después de eso.
+4. Verificá que la probabilidad, el impacto, la confianza y el arreglo propuesto coincidan **sólo**
+   con lo que la evidencia establece.
+5. Para un candidato `needs_validation`: decidí si el bloqueo está realmente fuera del código y de
+   lo observable. Si el código refuta la traza, se rechaza. Si el hecho que falta sigue siendo
+   decisivo, se mantiene, con planes locales y de observación por el dueño que sean exactos y no
+   destructivos.
+6. Conservá la huella para la misma causa raíz en todos los estados.
+
+Devolvé exactamente un objeto JSON, sin prosa alrededor:
 {"decision": "confirmed|needs_validation|rejected", "record": { ... }}
-where record exactly matches the decision's verdict branch of the schema included
-in this prompt. A corrected record replaces the hunter's wording.
+donde el registro coincide exactamente con la rama del veredicto en el esquema que se incluyó en
+este prompt. Un registro corregido reemplaza la redacción del cazador.
 ```
 
-Copy this promotion procedure verbatim into every candidate-verifier prompt:
+Un verificador puede **promover** un `needs_validation` a `confirmado` sólo después de establecer
+por su cuenta el camino completo y el resultado observado acotado. Y **degrada** una confirmación
+propuesta a `needs_validation` cuando un hecho de despliegue o de runtime sigue sin conocerse. Usa
+`rejected` cuando el código, el comportamiento local, un control visible, la falta de impacto real o
+un prerrequisito imposible refutan la afirmación.
 
-```text
-Artifact promotion procedure (trusted parent-side code only):
-Reference only for you: the parent performs these steps; you never perform them.
+**`needs_validation` nunca es el estacionamiento de una idea especulativa.**
 
-Before execution, the parent opens and retains trusted, non-inheritable directory
-descriptors for the agent's scratch/ and artifacts/ roots, and records an allowlist
-of expected scratch-relative artifact files plus explicit per-file and cumulative
-byte limits. Never pass those descriptors to the agent or sandbox. After the sandbox
-and all its processes terminate, trusted parent-side code promotes each allowlisted
-file separately:
+El padre comprueba que cada verificador haya devuelto la misma huella, salvo que haya identificado
+una causa raíz genuinamente distinta. Aplica las correcciones, anota la decisión en cada unidad
+ligada y asegura **un registro final por huella**. Un resultado mal formado o envuelto en prosa **se
+descarta sin arreglarlo**: se vuelve a correr con un verificador fresco si el presupuesto lo
+permite; si no, queda como candidato sin validar en la tabla, bajo la regla de corrida incompleta.
 
-1. Validate the declared relative path: reject absolute, empty, `.`, `..`, or
-   symlinked components.
-2. Walk each parent component from the retained scratch-root descriptor with
-   no-follow directory-relative operations; never reopen by path.
-3. Open the leaf no-follow and nonblocking.
-4. Verify with `fstat` that it is a regular file with link count exactly one and
-   within the recorded per-file and cumulative byte limits.
-5. Enforce those limits again while reading from that descriptor.
-6. Copy exactly the verified size, repeat `fstat`, and reject a changed identity,
-   type, link count, or size.
-7. For the destination, walk every parent component from the retained
-   artifacts-root descriptor with no-follow directory-relative operations; require
-   each existing component to be a real directory, and create any missing directory
-   exclusively before reopening and verifying it no-follow.
-8. Create the leaf exclusively without following links, verify that the opened
-   destination is a regular file with link count exactly one, and copy from the
-   verified source descriptor without reopening either path.
-9. Use equivalent race-safe APIs on non-POSIX systems.
-10. Never recursively copy or glob scratch, extract an archive into artifacts, or
-    open or promote a symlink, FIFO, socket, device, directory, hard-linked file,
-    changing file, or file that exceeds its bound.
-11. If any check is unavailable, cannot be enforced, or fails, discard the scratch
-    entry; if it is decisive evidence, retain `needs_validation` with the exact
-    promotion blocker.
-```
+Si el presupuesto no alcanza para validar todo: se corta la caza, se valida mientras alcance, y la
+corrida queda `incomplete` con el motivo. **Un candidato sin validar no entra a `findings.json` bajo
+ningún veredicto.**
 
-A verifier can promote `needs_validation` to `confirmed` only after independently establishing the complete path and bounded observed result. Demote proposed confirmation to `needs_validation` when a specific deployment or runtime fact remains unknown. Use `rejected` when source, local behavior, a visible control, missing meaningful impact, or an impossible prerequisite refutes the claim. `needs_validation` is never a parking place for a speculative idea.
+### Fase 4: escribir y validar `findings.json`
 
-The parent checks that each verifier returned the same fingerprint unless it identified a genuinely different root cause. Merge corrections, record the decision in every linked coverage unit, and ensure there is one final record per fingerprint. Discard a malformed or prose-wrapped verifier result without repairing it; re-run that candidate with a fresh verifier when the budget permits, otherwise it remains an unvalidated ledger candidate under the incomplete-run rule.
+El padre escribe todos los registros decididos en `<salida>/findings.json`, ordenados por huella:
 
-When verifier evidence updates a ledger check, set that check's `agent_id` to the verifier's canonical ID and list its nonempty repository-relative `reviewed_paths`. Keep the unit-level `reviewed_paths` equal to the union across checks. Use `method: "source"` with `artifact: null` for source-only review. Use `method: "local"` only with a file successfully promoted by trusted parent-side code below `agents/<check.agent_id>/artifacts/`. The unit retains its original assignment owner, so independently owned hunter and verifier checks can coexist. For a carried prior record's seeded `planned` unit there is no prior owner: the verifier that re-checks it becomes the unit's assignment owner, and its re-check is the unit's first check, moving the unit to `candidate` with the carried fingerprint.
+- **`confirmed`**: vulnerabilidades fundadas en el código, con evidencia de ejecución local
+  completa, condiciones, remediación concreta, probabilidad/impacto/severidad general, y confianza.
+- **`needs_validation`**: candidatos fundados en el código con un bloqueo exacto sin resolver y al
+  menos un plan aplicable (local u observación por el dueño).
+- **`rejected`**: candidatos refutados durante la validación, conservados para que una corrida
+  futura no repita la afirmación sin evidencia nueva.
 
-If a strict total-agent budget cannot cover every candidate, set the run status to incomplete and follow the deterministic budget rule in `SKILL.md`. An unvalidated candidate remains only in the ledger. It does not enter `findings.json` under any verdict.
+Leé `report-schema.json` **inmediatamente antes de escribir**. Usa `additionalProperties: false`: no
+se llevan campos del envoltorio del cazador a un registro. Los tres contratos son distintos:
 
-### Phase 4: Write and validate `findings.json`
+- `confirmed` usa `root_cause`, `intended_behavior`, `conditions`, `execution`, `remediation`,
+  `severity` y `confidence`. **No** usa `claimed_root_cause`, `blockers`, `validation_plan` ni
+  `reason`. `execution` describe la interfaz propia del objetivo, y `observed_result` no está vacío.
+- `needs_validation` usa `claimed_root_cause`, `trace`, `evidence`, `blockers` y al menos un campo
+  no vacío de `validation_plan.local` o `validation_plan.deployment`. **No** usa severidad,
+  execution, remediation, reason, ni causa raíz confirmada.
+- `rejected` usa `claimed_root_cause`, `trace`, `evidence` y `reason`. **No** usa severidad,
+  execution, remediation, blockers ni plan de validación.
 
-The parent writes all independently decided records to `<output-dir>/findings.json`, sorted by fingerprint. Include:
-
-- `confirmed`: source-grounded vulnerabilities with complete local execution evidence, conditions, specific remediation, likelihood/impact/overall severity, and confidence.
-- `needs_validation`: source-grounded candidates with an exact unresolved blocker and at least one applicable local or owner-observed deployment plan.
-- `rejected`: source-grounded candidates disproved during validation, retained so future runs do not repeat the unsupported claim without changed evidence.
-
-Read `report-schema.json` immediately before writing. It uses `additionalProperties: false`; do not carry hunter wrapper fields into a record. Keep these verdict contracts distinct:
-
-- A `confirmed` record uses `root_cause`, `intended_behavior`, `conditions`, `execution`, `remediation`, `severity`, and `confidence`. It must not use `claimed_root_cause`, `blockers`, `validation_plan`, or `reason`. `execution` is target-neutral and uses the target's native interface: API/HTTP input, CLI call, library call, message, file fixture, browser action, rendered policy, or local harness as applicable. `observed_result` is nonempty and factual.
-- A `needs_validation` record uses `claimed_root_cause`, `trace`, `evidence`, `blockers`, and at least one nonempty `validation_plan.local` or `validation_plan.deployment` field. Include both only when both contexts can resolve distinct facts. It must not use severity, execution, remediation, reason, or confirmed root cause.
-- A `rejected` record uses `claimed_root_cause`, `trace`, `evidence`, and `reason`. It must not use severity, execution, remediation, blockers, validation plan, or confirmed root cause.
-
-Every record has a stable fingerprint, title, description, and repository-relative source paths. A multi-step trace begins with `entrypoint`, ends with `sink`, and uses `propagation` only between them. One-entry traces use `entrypoint` or `sink`. Overall severity cannot exceed demonstrated impact.
-
-Run:
+Todos los registros llevan huella estable, título, descripción y rutas relativas al repo. Una traza
+de varios pasos arranca en `entrypoint`, termina en `sink` y usa `propagation` sólo entre medio.
+**La severidad general no puede superar el impacto demostrado.**
 
 ```sh
-node <skill-dir>/validate-findings.cjs <output-dir>/findings.json
-node <skill-dir>/validate-coverage-ledger.cjs <output-dir>/coverage-ledger.json
+node <skill-dir>/validate-findings.cjs <salida>/findings.json
+node <skill-dir>/validate-coverage-ledger.cjs <salida>/coverage-ledger.json
 ```
 
-Fix every structural and semantic error before continuing. The findings validator rejects input beyond 5 MiB, 1,000 top-level findings, or 64 nesting levels, and caps reported error output at 100 messages. Validator success proves format and ledger consistency only.
+Se arregla **todo** error estructural y semántico antes de seguir. Que el validador pase prueba el
+formato y la consistencia con la tabla, nada más.
 
-### Phase 5: Verify the final records with fresh eyes
+### Fase 5: verificar los registros finales con ojos frescos
 
-Launch one fresh `research` verifier per final `confirmed` and `needs_validation` record, in parallel. This verifier checks the structured record, not the hunter write-up, and remains inside source/local boundaries.
+Se lanza un verificador fresco por cada registro final `confirmed` y `needs_validation`, en
+paralelo. Este verificador revisa **el registro estructurado**, no la redacción del cazador, y se
+mantiene dentro del terreno permitido.
 
-In a `quick` run, Phase 3 and Phase 5 merge: the Phase 3 verifier also performs these record checks and returns the final schema-shaped record, so each candidate gets one fresh independent reviewer instead of two. Every other profile keeps the two passes separate. Never skip independent review of a `confirmed` record in any profile.
+En una corrida `rapida`, las fases 3 y 5 se juntan: el verificador de la fase 3 también hace estos
+chequeos y devuelve el registro final con forma de esquema. Los otros perfiles mantienen las dos
+pasadas separadas. **En ningún perfil se saltea la revisión independiente de un `confirmed`.**
 
-For `confirmed`, require it to check:
+Para un `confirmed` tiene que revisar:
 
-1. Every repository-relative trace/evidence path, line, scope, and described operation.
-2. Real entry interface and exact local input shape.
-3. Every condition, parser/policy step, source-visible preventing layer, and observed local result.
-4. Affected principal/resource and demonstrated impact.
-5. Severity separation: realistic likelihood, demonstrated impact, overall no greater than impact.
-6. Remediation strategy and any `code_changes`, including whether the fix enforces the invariant without merely moving trust.
+1. Cada ruta, línea, alcance y operación descritos en la traza y la evidencia.
+2. La interfaz de entrada real y la forma exacta de la entrada.
+3. Cada condición, paso de parser o política, capa que impida el efecto, y resultado local observado.
+4. A quién o a qué afecta, y el impacto demostrado.
+5. La separación de severidad: probabilidad realista, impacto demostrado, y total no mayor al impacto.
+6. La estrategia de remediación: que el arreglo sostenga la invariante **sin mover la confianza de
+   lugar**.
 
-For `needs_validation`, require it to check:
+Para un `needs_validation`:
 
-1. The source path is real and supports only the `claimed_root_cause` stated.
-2. Every listed blocker is decisive and not already answerable locally.
-3. The candidate names a boundary and a possible concrete result rather than a generic concern.
-4. At least one validation-plan field is present and exact. `local` uses a bounded fixture; `deployment` asks an owner to observe a configuration, identity, route, policy, or runtime fact. Do not invent a plan for an inapplicable context, and never send audit traffic to a deployment.
-5. The fingerprint matches prior/current records for the same root cause.
+1. Que el camino del código sea real y sostenga sólo la causa raíz que se afirma.
+2. Que cada bloqueo listado sea decisivo y no se pueda responder ya de forma local.
+3. Que el candidato nombre una frontera y un resultado posible concreto, no una preocupación genérica.
+4. Que haya al menos un campo del plan de validación, y exacto. `local` usa un fixture acotado;
+   `deployment` le pide al dueño que observe una configuración, identidad, ruta, política o hecho
+   del runtime. **No se inventa un plan para un contexto que no aplica, y nunca se manda tráfico de
+   auditoría a un despliegue.**
+5. Que la huella coincida con los registros previos y actuales de la misma causa raíz.
 
-Each verifier returns exactly one JSON object: `{"decision":"verified","fingerprint":"..."}` or `{"decision":"replace","reason":"...","record":{...}}`, with no surrounding prose. A replacement record must match its `confirmed`, `needs_validation`, or `rejected` schema branch. Treat a malformed or prose-wrapped Phase 5 result the same way as in Phase 3: discard it without repairing it and re-run with a fresh verifier when the budget permits.
+Cada verificador devuelve exactamente un objeto JSON, sin prosa:
+`{"decision":"verified","fingerprint":"..."}` o
+`{"decision":"replace","reason":"...","record":{...}}`.
 
-Do not apply a Phase 5 replacement as final when it promotes a record to a stronger verdict, including any promotion to `confirmed`, or materially changes the root cause, trace, execution input or observed result, demonstrated impact, or severity. Give that complete replacement to a new independent verifier that did not hunt, perform Phase 3 validation, or propose the Phase 5 replacement. The new verifier rechecks the current source and independently reproduces any decisive local result under the execution boundary, then returns `verified` or another replacement. Apply a material replacement only after this fresh verification. If another material replacement results, repeat with a fresh verifier. If budget or independence is unavailable, remove the disputed record from `findings.json`, keep its ledger unit as an unresolved candidate, and set `run_status: "incomplete"` with an exact `incomplete_reason`. Non-material wording or repository-line corrections may be applied directly when they do not change meaning or evidence.
+Un reemplazo que **promueva** el veredicto (sobre todo a `confirmed`) o que cambie materialmente la
+causa raíz, la traza, la entrada de ejecución, el resultado observado, el impacto o la severidad
+**no se aplica como final**: se le da a un verificador nuevo que no haya cazado, ni validado en la
+fase 3, ni propuesto ese reemplazo. Si no hay presupuesto o independencia, el registro disputado
+**se saca de `findings.json`**, su unidad queda como candidato sin resolver, y la corrida queda
+`incomplete` con el motivo exacto. Sólo las correcciones de redacción o de número de línea que no
+cambian el significado se pueden aplicar directo.
 
-After every applied replacement, rerun both validators and update linked ledger decisions. If a final verifier identifies a separate root cause, assign a new fingerprint and send it through independent candidate validation before inclusion. Set `run_status: "complete"` only when every ledger candidate has an independent final disposition and every retained record passes Phase 5.
+Después de cada reemplazo aplicado se corren los dos validadores otra vez y se actualiza la decisión
+en las unidades ligadas. `run_status: "complete"` sólo se pone cuando **cada candidato de la tabla
+tiene un veredicto final independiente** y cada registro retenido pasó la fase 5.
 
-Do not verify only `confirmed` records. A misleading `needs_validation` handoff wastes owner time and can preserve a false premise.
+No se verifican sólo los `confirmado`: un `needs_validation` engañoso le hace perder tiempo al dueño
+y puede dejar en pie una premisa falsa.
 
-### Phase 6: Produce target-neutral reports from final records
+### Fase 6: los informes, derivados de los registros finales
 
-Only after Phase 5 passes for every record retained in `findings.json`, derive prose from the final records, the ledger, and the hunter `hardening` notes retained in ledger bookkeeping. An incomplete run may report independently verified records, but it must identify each unresolved ledger candidate and must not present it as a finding. The prose files never change a verdict, severity, blocker, or demonstrated impact.
+Sólo después de que la fase 5 pase para todos los registros retenidos, se escribe la prosa a partir
+de los registros finales, la tabla y las notas de endurecimiento. Una corrida incompleta puede
+informar los registros verificados, pero **tiene que identificar cada candidato sin resolver** y no
+puede presentarlo como hallazgo. **La prosa nunca cambia un veredicto, una severidad, un bloqueo ni
+el impacto demostrado.**
 
 #### `REPORT.md`
 
-Write:
+1. Perfil de la corrida, alcance y presupuesto, con los agentes gastados contra los planificados;
+   la referencia de código; la aclaración de que la ejecución fue **sólo código propio y observación
+   en modo lectura** (no hay sandbox); el uso de corridas previas; y la cobertura diferida y fuera
+   de alcance, explícita. Una corrida `rapida`, acotada o incompleta **dice claramente que es
+   parcial**. Si el presupuesto impidió correr un crítico obligatorio, se dice cuál y **no se
+   afirma cobertura limpia**.
+2. Un resumen corto de la postura de seguridad.
+3. Una tabla de hallazgos confirmados: severidad, título, frontera afectada y el resultado observado
+   en una línea.
+4. Cada confirmado: ubicación en el código, principal de menor confianza, reproducción acotada con
+   la interfaz propia del objetivo, condiciones, resultado real, impacto, por qué esa prioridad, y
+   el arreglo más chico.
+5. Una tabla aparte de **NECESITA VALIDACIÓN**, con el título de cada pista, la traza en el código,
+   el bloqueo exacto, el próximo paso local acotado y el chequeo seguro que puede hacer el dueño.
+   **Sin severidad y sin llamarlo vulnerabilidad confirmada.**
+6. Notas de endurecimiento y patrones positivos del código.
+7. Resumen de cobertura de la tabla: cubiertas, candidatas, bloqueadas y diferidas, más las
+   exclusiones importantes y el resultado final del crítico.
 
-1. Run profile, scope, budget (if set) with agents spent versus planned, source ref, sandboxed source-and-local-only execution statement, prior-run use, and explicit deferred and out-of-scope coverage. Name carried same-source confirmations and changed-source revalidations. A `quick`, scoped, budget-limited, or incomplete run states plainly that it is a partial pass. If candidate validation exhausted a strict budget, state that the run is incomplete and list every unvalidated fingerprint and linked unit; do not describe those candidates as findings. If the budget prevented a mandatory critic, state which critic did not run and make no clean-coverage claim.
-2. One short security posture summary.
-3. A confirmed-findings table: severity, title, affected boundary, and one-line observed result.
-4. Each confirmed finding: repository source location, lower-trust principal, target-native bounded reproduction, conditions, actual result, impact, priority rationale, and smallest source fix.
-5. A separate `NEEDS VALIDATION` table. Give each lead's title, repository trace, exact blocker, bounded local next step, and safe owner-observed deployment check. Do not assign severity or call it a confirmed vulnerability.
-6. Separate hardening notes and positive source patterns.
-7. Coverage summary from the ledger: covered, candidate, blocked, and deferred counts, plus important exclusions and the final critic result.
-
-Do not describe rejected records as findings. Mention their fingerprints only when they explain a prior disagreement or coverage decision.
+Los `rejected` no se describen como hallazgos: sus huellas se mencionan sólo si explican una
+discrepancia previa o una decisión de cobertura.
 
 #### `FINDINGS-DETAIL.md`
 
-For each confirmed `medium`, `high`, or `critical` record, copy the complete source path and target-neutral local reproduction:
+Por cada registro confirmado `media`, `alta` o `crítica`, se copia la traza completa y la
+reproducción acotada:
 
-- ordered repository-relative trace and evidence;
-- dummy attacker/principal and affected dummy resource;
-- native input, invocation, or fixture and exact bounded instructions;
-- observed output and the security invariant it proves;
-- conditions and containment;
-- source-level remediation and regression case.
+- la traza ordenada, relativa al repo, y la evidencia;
+- el principal de prueba y el recurso de prueba afectado;
+- la entrada, invocación o fixture, y las instrucciones acotadas exactas;
+- la salida observada y la invariante de seguridad que prueba;
+- las condiciones y la contención;
+- la remediación a nivel de código y el caso de regresión.
 
 #### `NEEDS-VALIDATION.md`
 
-For every unresolved record, copy the source trace, verified evidence, exact blocker, affected boundary, and each applicable bounded local or owner-observed resolution plan. Keep these as prioritized leads without severity. Do not turn them into live test guidance or assume the missing deployment fact.
+Por cada registro sin resolver, se copia la traza, la evidencia verificada, el bloqueo exacto, la
+frontera afectada y cada plan aplicable. Quedan como **pistas priorizadas, sin severidad**. No se
+convierten en instrucciones para probar contra un despliegue vivo, ni se supone el hecho que falta.
 
-HTTP is one possible native interface, not the default. A library finding may use a function call, a parser a fixture, a CLI a command, a desktop app an IPC or file action, and infrastructure a locally rendered policy. Do not require an endpoint, external account, or live environment that the target does not have.
+HTTP es **una** interfaz posible, no la de por defecto: un hallazgo puede reproducirse con una
+llamada a una función, un fixture, un comando, o mirando una configuración. No se exige un endpoint,
+una cuenta externa ni un entorno vivo que el objetivo no tenga.
 
-Keep the report proportional to the evidence. A clean run may have zero confirmed records. State that result and the remaining coverage/validation limits without inventing LOW findings.
+**El informe va en proporción a la evidencia.** Una corrida limpia puede tener cero confirmados: se
+dice el resultado y los límites de cobertura sin inventar hallazgos de relleno.

@@ -1,189 +1,158 @@
-# Vulnerability Hunting
+# Caza de vulnerabilidades
 
-### Phase 2: Run coverage-led hunting waves
+### Fase 2: olas de caza guiadas por la cobertura
 
-The parent assigns `planned` ledger units to `general` agents. Use enough focused hunters to cover the units without combining unrelated boundaries. One hunter may own closely related units in one subsystem; no unit may be silently unassigned because of an agent-count limit — a unit the budget cannot reach is explicitly `deferred` with reason `budget_cannot_reserve_critics_and_validation`.
+El padre asigna las unidades `planned` de la tabla a los agentes cazadores. Se usan los cazadores
+necesarios para cubrir las unidades sin mezclar fronteras que no tienen relación. Un cazador puede
+tener varias unidades del mismo subsistema; **ninguna unidad queda sin asignar en silencio**: la
+que el presupuesto no alcanza queda `deferred` con el motivo exacto.
 
-When a budget or profile caps hunter count, assign units in priority order and record the ordering rationale in the ledger. Rank by: (1) unauthenticated or lowest-trust entry surfaces before authenticated ones; (2) boundaries protecting the most valuable resources (credentials, cross-tenant data, code execution, release authority); (3) prior-run gaps, revalidation targets, and changed source before same-source re-passes; (4) units whose class historically yields confirmed findings for this target type over speculative ones. Ties break lexicographically by `coverage_id` so runs stay deterministic.
+Cuando un perfil o un presupuesto limita la cantidad de cazadores, las unidades se asignan por
+prioridad y el motivo del orden queda en la tabla. El orden es: (1) superficies sin autenticación o
+de menor confianza antes que las autenticadas; (2) fronteras que protegen lo más valioso
+(credenciales, datos de otro, ejecución de código, autoridad de publicación); (3) huecos de
+corridas previas, objetivos de revalidación y código que cambió; (4) las clases que históricamente
+dan hallazgos en este tipo de objetivo. Los empates se rompen por `coverage_id`.
 
-Before launch, the parent changes assigned units to `in_progress`, sets a canonical lowercase `agent_id`, and creates that agent's `scratch/` and parent-owned `artifacts/`. Hunters read source and parent-provided context, write only to their unique `scratch/`, and return one structured result through the Task tool. They never write retained artifacts or edit target source, `architecture.md`, `coverage-ledger.json`, `findings.json`, or another agent's files.
+Antes de lanzar: las unidades asignadas pasan a `in_progress`, se fija un `agent_id` canónico y se
+le crea su carpeta de trabajo. Los cazadores leen el código y el contexto que les da el padre,
+escriben sólo en su carpeta y **devuelven un único resultado estructurado**. Nunca escriben los
+archivos compartidos, ni el código del objetivo, ni la carpeta de otro.
 
-## Required hunter prompt
+## El prompt del cazador (lo que hay que incluir, en este orden)
 
-Every hunter prompt contains these parts in this order:
+1. **Dos frases de rol**: el objetivo es encontrar fallas de una invariante de seguridad con
+   evidencia en el código, y devolver **exactamente un objeto JSON** con el contrato del final.
+2. `architecture.md` **textual**.
+3. Los IDs de cobertura asignados, el subsistema, la frontera, las rutas de arranque relativas al
+   repo y el mapa de asignación de cada unidad.
+4. **Los bloques de clase textuales**: el bloque común elegido de `ATTACK-CLASSES.md` y, por cada
+   compañero elegido, su `Disciplina central`, las clases elegidas, `Movimientos universales` y
+   `Reglas de validación`. **No se manda sólo el nombre del bloque.**
+5. Los bloques excluidos, con el motivo de cada exclusión.
+6. El método de caza (abajo) y las reglas de validación (abajo).
+7. Las confirmaciones previas del mismo código que se excluyen (huella, título y causa raíz), y los
+   IDs de cobertura de otros cazadores que no debe duplicar.
+8. Las rutas de su carpeta, el ID seguro, y el contrato del resultado estructurado, incluidas las
+   ramas `confirmed` y `needs_validation` de `report-schema.json` **textuales**.
 
-1. A two-sentence role preamble: the hunter's goal is to find source-grounded security invariant failures in its assigned units, and it must return exactly one JSON object matching the structured-result contract at the end of this prompt.
-2. `architecture.md` verbatim.
-3. Assigned coverage IDs, subsystem, boundary, repository-relative starting paths, and each unit's assignment block map from `coverage-ledger.json`.
-4. The exact selected blocks, copied verbatim: each selected ordinary attack-class block from `ATTACK-CLASSES.md`, and from each selected companion its `Core discipline`, each chosen attack-class subsection, `Universal moves`, and `Validation rules`. Ordinary blocks are self-contained and carry no companion-style `Core discipline`, `Universal moves`, or `Validation rules` sections. Do not send block or companion names alone.
-5. Explicit excluded ordinary and companion blocks with a reason for each exclusion.
-6. The core hunting method below, followed by the promotion procedure block.
-7. The core validation rules below.
-8. Carried same-source prior confirmed exclusions, each limited to fingerprint, title, and root cause, plus peer-owned current coverage IDs that this hunter must not duplicate.
-9. The unique scratch/artifact paths, safe agent ID, predeclared promotion allowlist and byte limits, and the structured-result contract, including the Structured hunter result block below and the `confirmed` and `needs_validation` branches of `report-schema.json` copied verbatim.
+Un prompt puede elegir varios compañeros cuando el mismo camino cruza varios dominios. El alcance
+es la obligación de cobertura, no permiso para duplicar trabajo excluido. Si aparece una frontera
+distinta, se devuelve en `uncovered` para que el padre cree la unidad y la asigne en la ola
+siguiente.
 
-A prompt may select several companion blocks when the same path crosses several domains. Keep their constraints together. Scope is the hunter's coverage obligation, not permission to duplicate excluded work. If an unexpected different boundary appears, return it under `uncovered` so the parent creates a stable ledger unit and assigns it in the next wave.
-
-#### Core hunting method — include in every hunter prompt
-
-```text
-## Defensive vulnerability-finding method
-
-Your goal is to find source-grounded security invariant failures and the smallest fix,
-not to expand harm beyond the boundary result. Stay within source review and bounded local execution.
-Do not contact deployed endpoints, provider APIs, registries, identity systems,
-message brokers, shared services, or other users. Use local dummy data only.
-
-READ THE CODE AT DEPTH. Follow each assigned input through parsing, identity,
-authorization, normalization, state, derived copies, and the final sink. Read sibling,
-legacy, batch, retry, cancellation, migration, and error paths that produce the same
-effect. Compare sibling controls for equivalence, not only presence, and compare what
-one component guarantees with what the next component assumes.
-
-WORK FROM A CONCRETE INVARIANT:
-1. Name the lower-trust principal and starting capability.
-2. Name the accepted value, action, state transition, or resource selector.
-3. Locate the control that should reject, bind, isolate, limit, or revoke it.
-4. Trace the exact source path after that decision.
-5. Stop at the smallest affected dummy record, wrong return value, process-integrity
-   effect, or locally observable shared-resource effect.
-6. State a source-level change and regression case that enforce the invariant.
-
-DEPTH BOUND: trace only paths that can reach your assigned boundary or whose
-guarantees that boundary relies on. Stop a line of investigation as soon as the
-invariant is settled either way, and record the result in your structured output —
-a covered, candidate, or blocked disposition, or an `uncovered` entry — instead of
-continuing to search.
-
-TEST SAD PATHS AND DISAGREEMENTS. Check absent, empty, zero, negative, maximum,
-over-limit, duplicate, mixed encoding, stale, revoked, reordered, concurrent,
-partially migrated, failed dependency, and rollback state only where the interface
-accepts them. Compare canonicalization and units at every parser or policy handoff.
-For multi-step issues, treat each output as a prerequisite and do not assume a later
-boundary. If any prerequisite is not established, record a blocker.
-
-When a proposed high or critical candidate reveals a reusable root cause, search paths
-owned by the assigned coverage IDs for lexical, structural, and logical variants.
-Consolidate the same root cause, but establish each variant's conditions and impact
-independently. Do not investigate peer-owned units. Return a variant with no current
-coverage unit as `uncovered`.
-
-USE THE NARROWEST LOCAL CHECK THAT SETTLES THE CLAIM. Target-controlled builds,
-tests, processes, browsers, emulators, fuzzers, and fixture processing may run only
-inside the parent-approved OS-enforced sandbox. It must disable external networking,
-start from an empty allowlisted environment, expose target and tools read-only, permit
-writes only to your scratch directory, and apply low CPU, memory, process, file-size,
-disk, and wall-clock limits. Isolated loopback is allowed only for a local fixture.
-If any control is unavailable, do not execute: return needs_validation with that exact
-blocker. Prefer an existing unit test, minimal function harness, dummy-tenant service
-call, small malformed fixture, deterministic race schedule, or locally rendered policy.
-Do not install or fetch tools.
-
-Record the exact input, command, limits, and minimum result. For the environment,
-record only allowlisted variable names and safe non-secret values needed to reproduce
-the check. Never capture the ambient environment, inherited variables, credentials,
-authentication state, or unrelated host paths. The target-controlled process writes
-only in scratch. After the sandbox and all its processes terminate, only trusted
-parent-side code may promote predeclared scratch-relative files, following the
-promotion procedure block included verbatim in this prompt. You and target code never
-write retained artifacts. If promotion is unavailable or fails for decisive evidence,
-return needs_validation with the exact promotion blocker.
-Never stress availability, invoke a live target, use a real credential, publish an
-artifact, or continue past the minimum observed effect.
-
-A deployment, browser, provider, broker, OS, proxy, package, secret, or identity fact
-outside source is not proof either way. If one such fact is decisive, return a
-needs_validation record with the exact missing observation and safe owner-observed check.
-```
-
-#### Promotion procedure — copy this promotion procedure verbatim into every hunter prompt
+### Método de caza — va en todos los prompts de cazador
 
 ```text
-Artifact promotion procedure (trusted parent-side code only):
-Reference only for you: the parent performs these steps; you never perform them.
+## Método defensivo de búsqueda
 
-Before execution, the parent opens and retains trusted, non-inheritable directory
-descriptors for the agent's scratch/ and artifacts/ roots, and records an allowlist
-of expected scratch-relative artifact files plus explicit per-file and cumulative
-byte limits. Never pass those descriptors to the agent or sandbox. After the sandbox
-and all its processes terminate, trusted parent-side code promotes each allowlisted
-file separately:
+Tu objetivo es encontrar fallas de una invariante de seguridad con evidencia en el código, y el
+arreglo más chico. NO busques ampliar el daño más allá del resultado de frontera.
 
-1. Validate the declared relative path: reject absolute, empty, `.`, `..`, or
-   symlinked components.
-2. Walk each parent component from the retained scratch-root descriptor with
-   no-follow directory-relative operations; never reopen by path.
-3. Open the leaf no-follow and nonblocking.
-4. Verify with `fstat` that it is a regular file with link count exactly one and
-   within the recorded per-file and cumulative byte limits.
-5. Enforce those limits again while reading from that descriptor.
-6. Copy exactly the verified size, repeat `fstat`, and reject a changed identity,
-   type, link count, or size.
-7. For the destination, walk every parent component from the retained
-   artifacts-root descriptor with no-follow directory-relative operations; require
-   each existing component to be a real directory, and create any missing directory
-   exclusively before reopening and verifying it no-follow.
-8. Create the leaf exclusively without following links, verify that the opened
-   destination is a regular file with link count exactly one, and copy from the
-   verified source descriptor without reopening either path.
-9. Use equivalent race-safe APIs on non-POSIX systems.
-10. Never recursively copy or glob scratch, extract an archive into artifacts, or
-    open or promote a symlink, FIFO, socket, device, directory, hard-linked file,
-    changing file, or file that exceeds its bound.
-11. If any check is unavailable, cannot be enforced, or fails, discard the scratch
-    entry; if it is decisive evidence, retain `needs_validation` with the exact
-    promotion blocker.
+## Reglas del terreno (nuestras, no negociables)
+
+- NO contactes despliegues, endpoints externos, APIs de terceros, ni servicios compartidos. No
+  sondees internet, ni los paneles de terceros, ni producción, ni la LAN del receptor.
+- NO ejecutes código que no sea nuestro: ni el firmware, ni binarios del fabricante, ni builds o
+  dependencias que hagan falta instalar. En esta VM no hay sandbox del sistema operativo.
+- SÍ podés leer el código, leer la configuración, y OBSERVAR EN MODO LECTURA lo propio:
+  `curl` a 127.0.0.1, `sudo docker ps|inspect|logs`, `ss -ltnp`, `ps`, `systemctl --user status`,
+  `journalctl --user`, `git log`, `df`/`du`. Y podés correr **nuestros** scripts con datos de
+  prueba, en `work/tmp`, sin red.
+- Si para confirmar hace falta ejecutar algo de un tercero: NO lo hagas. Devolvé
+  `needs_validation` con el bloqueo exacto.
+- NUNCA pongas un valor de credencial en tu resultado. Ni real, ni inventado que parezca real.
+- No toques el canal de TV al aire: es producción interna.
+
+LEÉ EL CÓDIGO A FONDO. Seguí cada entrada asignada por el parseo, la identidad, la autorización, la
+normalización, el estado, las copias derivadas y el sumidero final. Leé los caminos hermanos, los
+viejos, los de lote, los de reintento, los de cancelación, los de migración y los de error que
+producen el mismo efecto. Compará los controles hermanos por equivalencia, no sólo por presencia, y
+compará lo que un componente garantiza con lo que el siguiente asume.
+
+TRABAJÁ DESDE UNA INVARIANTE CONCRETA:
+1. Nombrá el principal de menor confianza y con qué arranca.
+2. Nombrá el valor, la acción, la transición de estado o el selector de recurso que se acepta.
+3. Ubicá el control que debería rechazarlo, atarlo, aislarlo, limitarlo o revocarlo.
+4. Trazá el camino exacto del código después de esa decisión.
+5. Frená en el efecto más chico: un registro de prueba de más, un valor de retorno equivocado, un
+   efecto observado en un recurso compartido propio.
+6. Decí el cambio de código y el caso de regresión que sostienen la invariante.
+
+LÍMITE DE PROFUNDIDAD: trazá sólo caminos que puedan llegar a tu frontera, o cuyas garantías esa
+frontera use. Cortá una línea de investigación apenas la invariante quede resuelta en cualquier
+sentido y anotala en tu resultado —cubierta, candidata o bloqueada, o una entrada `uncovered`— en
+vez de seguir buscando.
+
+PROBÁ LOS CAMINOS TRISTES Y LAS DISCORDANCIAS. Revisá ausente, vacío, cero, negativo, máximo, por
+encima del límite, duplicado, codificación mezclada, vencido, revocado, reordenado, concurrente,
+migrado a medias, dependencia caída y estado de vuelta atrás, sólo donde la interfaz los acepte.
+Compará la canonicalización y las unidades en cada traspaso de parser o de política. En problemas de
+varios pasos, cada salida es un prerrequisito: si un prerrequisito no está establecido, anotá un
+bloqueo.
+
+Cuando un candidato alto o crítico revele una causa raíz reutilizable, buscá variantes léxicas,
+estructurales y lógicas en los caminos de tus unidades. Consolidá la misma causa raíz, pero
+establecé las condiciones y el impacto de cada variante por separado. No investigues unidades de
+otro cazador.
+
+USÁ EL CHEQUEO LOCAL MÁS ANGOSTO QUE RESUELVA LA AFIRMACIÓN, y sólo dentro de lo permitido arriba.
+Preferí un test que ya exista, un arnés mínimo sobre el código nuestro, un fixture chico, un
+escenario de carrera determinista, o leer la política. No instales ni descargues nada.
+
+Registrá la entrada exacta, el comando y el resultado mínimo. Del entorno, anotá sólo lo necesario
+para reproducirlo, sin variables del ambiente ni estado de autenticación. Si el chequeo no se puede
+hacer, no lo hagas: va como needs_validation con ese bloqueo exacto.
+
+Un hecho de despliegue, navegador, proveedor, sistema operativo, proxy, paquete, secreto o
+identidad que esté fuera del código **no prueba nada en ningún sentido**. Si uno de esos hechos es
+decisivo, devolvé un needs_validation con la observación exacta que falta y el chequeo seguro que la
+resolvería (que puede hacerse desde otra máquina, o mirando una configuración).
+
+Nunca estreses la disponibilidad, ni invoques un servicio vivo, ni uses una credencial real, ni
+publiques nada, ni sigas más allá del efecto mínimo observado.
 ```
 
-#### Core validation rules — include in every hunter prompt
+### Reglas de validación — van en todos los prompts de cazador
 
 ```text
-## Candidate gate
+## Compuerta del candidato
 
-1. A candidate needs a complete repository-relative source trace and evidence for the
-   claimed root cause, including the strongest source-visible control.
-2. A proposed confirmed record needs a bounded local observed result, meaningful impact
-   across a stated boundary, complete conditions, and no visible preventing layer.
-3. Do not strengthen a crash into code execution, ordinary work into shared availability,
-   or a same-principal action into privilege gain.
-4. If a required fact is not source-visible or locally observable, use
-   needs_validation. Name exact blockers; do not give it severity or speculative completion.
-5. A missing best practice with no affected principal/resource is excluded or hardening,
-   not a finding. A candidate disproved by source is not needs_validation.
-6. Use the same source-derived fingerprint for the same root cause in every state.
-   It must match `^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$` and must not include a line,
-   wave, agent, severity, or verdict.
-7. Return an empty candidate array when nothing survives these gates.
+1. Un candidato necesita la traza completa de código con rutas relativas al repo y evidencia de la
+   causa raíz que afirma, incluido el control más fuerte visible en el código.
+2. Un registro `confirmado` propuesto necesita un resultado local acotado y observado, impacto con
+   sentido al cruzar una frontera, condiciones completas, y ninguna capa que lo impida a la vista.
+3. No conviertas un cierre inesperado en ejecución de código, un trabajo normal en caída del
+   servicio, ni una acción del mismo principal en aumento de privilegio.
+4. Si un hecho necesario no se ve en el código ni se puede observar localmente, va
+   `needs_validation`. Nombralo exacto; sin severidad y sin completarlo con especulación.
+5. Una buena práctica que falta y no afecta a ningún principal ni recurso es exclusión o nota de
+   endurecimiento, no hallazgo. Un candidato refutado por el código no es needs_validation.
+6. La misma huella para la misma causa raíz en todos los estados. Tiene que matchear
+   `^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$` y no incluir línea, ola, agente, severidad ni veredicto.
+7. Devolvé el arreglo de candidatos vacío cuando no sobreviva ninguno.
 ```
 
-## Local validation boundaries
+## Resultado estructurado del cazador
 
-Local execution is for confirmation, not impact expansion:
-
-- **Allowed only in the required OS sandbox:** offline builds with present dependencies; isolated-loopback processes using dummy state; unit and integration tests; small fixture processing; sanitizers; bounded fuzz/regression tests; deterministic concurrency checks; local browser/emulator tests with dummy accounts; rendered manifests and policy evaluation with dummy identities; mocked external or paid calls.
-- **Disallowed:** live or deployed traffic; requests to services not started for this isolated check; network dependency installation; real accounts or credentials; production data; shared queues, cloud resources, runners, registries, signing or release services; publishing; stress, saturation, or cost generation; any work after the minimum dummy-data boundary result.
-
-The sandbox starts with an empty environment, gives target code no external network or host writable path, and enforces explicit low resource and time limits for every check, not only checks expected to be expensive. Scratch output remains target-controlled after exit. Promote it only with the no-follow, path-confined, regular-file, bounded-size host procedure in `SKILL.md`. Missing any sandbox or promotion capability does not erase a source-grounded candidate; represent the exact blocker in `needs_validation`.
-
-## Structured hunter result
-
-Return exactly one JSON object, with no surrounding prose:
+Se devuelve **exactamente un objeto JSON, sin prosa alrededor**. Las claves van en inglés porque el
+padre y los validadores las esperan así:
 
 ```json
 {
   "units": [
     {
-      "coverage_id": "one assigned ID",
+      "coverage_id": "el ID asignado",
       "disposition": "covered|candidate|blocked",
-      "reviewed_paths": ["repo/relative/path"],
+      "reviewed_paths": ["ruta/relativa/al/repo"],
       "checks": [
         {
-          "agent_id": "canonical owner of this check",
-          "reviewed_paths": ["repo/relative/path owned by this check"],
-          "invariant": "specific control checked for this unit",
+          "agent_id": "dueño canónico del chequeo",
+          "reviewed_paths": ["ruta/relativa"],
+          "invariant": "el control concreto que se revisó",
           "method": "source|local",
-          "result": "what source or the bounded check established",
-          "artifact": "agents/<agent-id>/artifacts/file for local, null for source"
+          "result": "qué estableció el código o el chequeo acotado",
+          "artifact": null
         }
       ],
       "candidate_fingerprints": [],
@@ -191,36 +160,70 @@ Return exactly one JSON object, with no surrounding prose:
     }
   ],
   "candidates": [],
-  "hardening": ["concrete non-finding note"],
+  "hardening": ["nota concreta que no es hallazgo"],
   "uncovered": [
     {
       "surface": "...",
       "boundary": "...",
       "subsystem": "...",
       "attack_class": "...",
-      "starting_paths": ["repo/relative/path"],
-      "reason": "why this needs its own deterministic coverage unit"
+      "starting_paths": ["ruta/relativa"],
+      "reason": "por qué necesita su propia unidad de cobertura"
     }
   ]
 }
 ```
 
-Each `candidates` entry is schema-shaped except that it uses `proposed_verdict` in place of `verdict`:
+`artifact` es siempre `null` en nuestra versión: no hay artefactos promovidos desde un sandbox. La
+evidencia de un chequeo `local` se transcribe **en el campo `result` y en el informe**, con el
+comando exacto.
 
-- `proposed_verdict: "confirmed"`: include every field required by the `confirmed` branch of `report-schema.json` other than `verdict`: `fingerprint`, title, description, `root_cause`, `intended_behavior`, ordered `trace`, `evidence`, `conditions`, target-neutral `execution`, `remediation`, `severity`, and `confidence`. The execution instructions describe only the bounded local check already performed. `payloads` holds the minimum test input, fixture, or native invocation. `observed_result` records actual local output. Overall severity must not exceed observed impact.
-- `proposed_verdict: "needs_validation"`: include every field required by that schema branch other than `verdict`: `fingerprint`, title, description, `claimed_root_cause`, ordered `trace`, `evidence`, nonempty `blockers`, and `validation_plan` with at least one applicable `local` or `deployment` step. Do not invent an inapplicable context. Do not include severity, execution, remediation, reason, or a confirmed `root_cause`. `deployment` is an owner-observed check, not a request to probe a live target.
+Cada entrada de `candidates` tiene la forma del esquema salvo que usa `proposed_verdict` en lugar de
+`verdict`:
 
-Every assigned coverage ID appears exactly once in `units`. A `covered` unit needs an owner, nonempty `reviewed_paths` and `checks`, no unresolved fact, and no candidate. A `candidate` unit has the same owned evidence and is the only state that carries linked fingerprints. A `blocked` unit is an owned partial review with nonempty paths, checks, and unresolved facts but no fingerprint. All source paths are repository-relative, never absolute or traversal paths. A trace with several entries begins at `entrypoint`, ends at `sink`, and labels intermediate steps `propagation`. Every check has its own canonical lowercase `agent_id` and nonempty `reviewed_paths`; the unit-level list is exactly the union of those owned paths. A `source` check uses `artifact: null`. A `local` check uses one successfully parent-promoted regular file beneath `agents/<check.agent_id>/artifacts/`; this permits a verifier to add independently owned evidence without taking ownership from the hunter. Never link scratch, an output-root file, or another check owner's artifact.
+- `proposed_verdict: "confirmed"` — incluye todos los campos que pide la rama `confirmed` del
+  esquema salvo `verdict`: `fingerprint`, título, descripción, `root_cause`, `intended_behavior`,
+  `trace` ordenada, `evidence`, `conditions`, `execution`, `remediation`, `severity` y
+  `confidence`. `payloads` lleva la entrada mínima de prueba. `observed_result` es lo que
+  efectivamente salió. **La severidad general no puede superar el impacto observado.**
+- `proposed_verdict: "needs_validation"` — los campos de esa rama salvo `verdict`: `fingerprint`,
+  título, descripción, `claimed_root_cause`, `trace`, `evidence`, `blockers` no vacío, y
+  `validation_plan` con al menos un paso `local` o `deployment` aplicable. **Sin severidad, sin
+  execution, sin remediation.**
 
-## Parent consolidation and ledger update
+Cada ID asignado aparece exactamente una vez en `units`. Una unidad `covered` necesita dueño,
+`reviewed_paths` y `checks` no vacíos, ningún hecho sin resolver y ningún candidato. Una unidad
+`candidate` es la única que lleva huellas ligadas. Una `blocked` es una revisión parcial con dueño,
+rutas y chequeos no vacíos, y hechos sin resolver. Todas las rutas son relativas al repo. Una traza
+de varios pasos arranca en `entrypoint`, termina en `sink` y etiqueta los pasos intermedios como
+`propagation`.
 
-The parent validates each unit result, maps it to exactly one assigned `coverage_id`, and updates only that ledger unit. Reject duplicate or absent IDs, unsafe unit or check agent IDs, source checks with artifacts, and local artifacts that trusted parent-side code did not promote into the check owner's artifacts subtree. Copy the unit's `reviewed_paths`, its `checks` into the unit's `local_checks`, linked artifact paths, candidate fingerprints, and unresolved facts into the ledger. Retain each hunter's `hardening` list in a parent bookkeeping field on the relevant units (outside the semantic fields) so Phase 6 can report it. A failed, malformed, or unsupported conclusion leaves that unit `planned` for reassignment. Untouched budget/profile units become unassigned `deferred` units with empty evidence and a reason; do not hide partial evidence in `deferred`. Run `validate-coverage-ledger.cjs` after the update; an invalid ledger cannot drive another assignment. This per-unit contract allows one hunter to close one unit while returning a candidate or blocker for another.
+## Consolidación del padre y actualización de la tabla
 
-Consolidate candidate entries by fingerprint and then by root cause. One root cause that exposes several entry paths or effects is one candidate with the strongest complete trace. Related but independent missing controls use separate fingerprints. Record duplicate fingerprints in the relevant ledger unit and do not send duplicate candidates to validation.
+El padre valida cada resultado de unidad, lo mapea a un `coverage_id` asignado y actualiza **sólo**
+esa unidad. Rechaza IDs duplicados o ausentes, IDs inseguros, chequeos de código con artefacto, y
+cualquier artefacto que no corresponda. Copia las `reviewed_paths`, los `checks` a `local_checks`,
+los fingerprints ligados y los hechos sin resolver. Guarda la lista `hardening` de cada cazador en
+un campo de contabilidad aparte, para que la fase 6 la pueda reportar. **Una conclusión fallida o
+mal formada deja la unidad en `planned` para reasignar.**
 
-## Coverage-critic waves
+Las unidades que el presupuesto o el perfil no alcanzaron pasan a `deferred`, sin evidencia y con
+motivo; la evidencia parcial **no** se esconde dentro de `deferred`. Después de actualizar, corre el
+validador de la tabla: **una tabla inválida no puede dirigir otra asignación.**
 
-Immediately after each hunter wave, spend the reserved invocation on one fresh `research` post-wave coverage critic. It receives `architecture.md`, the full coverage ledger including each assignment block map, current candidate fingerprints and states, and the prior-ledger gap summary. It reads source but does not write or run targets. Require exactly this JSON:
+Los candidatos se consolidan por huella y después por causa raíz. Una causa raíz que expone varios
+caminos es **un** candidato, con la traza completa más fuerte. Controles faltantes distintos pero
+independientes usan huellas distintas. Las huellas duplicadas se registran en la unidad y no se
+mandan dos veces a validación.
+
+## Olas de crítico de cobertura
+
+Inmediatamente después de cada ola de caza, el padre gasta la invocación reservada en **un crítico
+de cobertura fresco**: recibe `architecture.md`, la tabla completa con los mapas de asignación, los
+candidatos con su estado, y el resumen de huecos previos. Lee el código pero **no escribe ni
+ejecuta** nada.
+
+Tiene que devolver exactamente este JSON:
 
 ```json
 {
@@ -230,22 +233,38 @@ Immediately after each hunter wave, spend the reserved invocation on one fresh `
       "boundary": "...",
       "subsystem": "...",
       "attack_class": "...",
-      "starting_paths": ["repo/relative/path"],
-      "selected_companion_blocks": ["FILE.md#section"],
-      "excluded_blocks": [{"block": "FILE.md#section", "reason": "..."}],
-      "reason": "source-backed coverage gap"
+      "starting_paths": ["ruta/relativa"],
+      "selected_companion_blocks": ["FILE.md#seccion"],
+      "excluded_blocks": [{"block": "FILE.md#seccion", "reason": "..."}],
+      "reason": "hueco de cobertura fundado en el código"
     }
   ],
-  "reassign_ids": ["existing-id-that-did-not-close"],
+  "reassign_ids": ["id-existente-que-no-cerro"],
   "resolved_prior_leads": ["fingerprint"],
   "stop": false
 }
 ```
 
-The critic checks for unmapped entry points, unchecked parallel paths, missing lifecycle modes, selected companion classes without a unit, unjustified exclusions, units closed without paths/checks, and prior `needs_validation` or changed-source gaps that no unit addresses. It proposes coverage, not findings. `stop` is the critic's own assessment: `true` only when it accepts no `missing_units` and no `reassign_ids`; the parent's loop condition below, not `stop` alone, decides whether another wave runs. For each fingerprint in `resolved_prior_leads`, the parent marks the linked unit or prior-lead entry resolved and records the critic's source-backed reason.
+El crítico busca: puntos de entrada sin mapear, caminos paralelos sin revisar, modos del ciclo de
+vida faltantes, clases elegidas sin unidad, exclusiones sin fundamento, unidades cerradas sin rutas
+ni chequeos, y huecos previos que ninguna unidad atiende. **Propone cobertura, no hallazgos.** El
+`stop` es su propia evaluación: `true` sólo si no acepta ninguna `missing_units` ni `reassign_ids`.
 
-The parent rejects proposed units outside the review scope or source/local boundary, derives canonical IDs for accepted units, and deduplicates them against current units. A prior same-source completed unit may supply evidence; prior `deferred`, `blocked`, `out_of_scope`, or changed-source units become current work and never suppress an accepted unit. Fail rather than merge a canonical ID collision. For each legitimate `reassign_id` with live `blocked`, `covered`, or `candidate` evidence, append that exact terminal record to the unit's `attempts` with the critic's source-backed `reassignment_reason`. Preserve its owner, checks, artifacts, fingerprints, and unresolved facts in that archive. Increment the live `wave`; the next hunter must be a fresh owner and receives an `in_progress` unit with empty live evidence. The hunter's terminal result writes only its new evidence into the live fields. Never copy an archived owner's checks or artifacts into the new live attempt. Sort IDs and validate the ledger before another assignment. In `standard` and `deep`, when the post-wave critic reports no accepted `missing_units` or legitimate `reassign_ids` and no `planned` units remain, spend the separately reserved invocation on a distinct final-clean critic. Complete coverage only when that critic also returns no accepted work. If it finds work, queue it and repeat the wave, post-wave critic, and final-clean process. If time or resources force an early stop, mark every untouched unit `deferred`, preserve the critic's reason, and disclose the gap in the report. Never use a silent wave or agent cap as evidence of complete coverage.
+El padre rechaza unidades fuera del alcance o del terreno permitido, deriva los IDs canónicos de
+las aceptadas y las deduplica. **Ante una colisión de ID canónico, se falla** en lugar de fusionar.
+Para cada `reassign_id` legítimo con evidencia viva, se agrega el registro terminal exacto al
+archivo `attempts` de la unidad con el motivo del crítico, y la siguiente asignación usa un dueño
+fresco y evidencia vacía. La ola se incrementa y la tabla se valida antes de asignar de nuevo.
 
-The run profile bounds this loop. A `quick` run has exactly one hunter wave followed by exactly one final critic pass. Add each accepted `missing_unit` to the current ledger and mark it `deferred` with reason `quick_profile_final_critic`. For each legitimate evidence-bearing `reassign_id`, archive the live terminal state in `attempts`, increment `wave`, and set the live state to unassigned `deferred` with empty evidence and reason `quick_profile_final_critic`. Do not launch a second hunter wave or another critic. In a scoped run, the critic still reports out-of-scope gaps it notices, but the parent records them as `out_of_scope` with the critic's reason instead of assigning them. The early-stop rule above is the same mechanism: `quick` is a pre-declared early stop, not evidence of complete coverage.
+En `estandar` y `profunda`, cuando el crítico posterior a la ola no acepta trabajo nuevo y no quedan
+unidades `planned`, se gasta la invocación reservada en un crítico final distinto. **La cobertura se
+considera completa sólo cuando ese crítico tampoco encuentra trabajo.** Si encuentra, se encola y se
+repite el ciclo.
 
-A budget bounds it the same way. Before assigning each wave, compare remaining budget against its hunter count, the validation reserve, the immediate post-wave critic, and the retained final-clean critic (`quick` reserves only its single final post-wave critic). Shrink the hunter wave to fit, taking units in priority order. If those mandatory reserves do not fit, launch no hunter from that wave and mark its planned units `deferred` with reason `budget_cannot_reserve_critics_and_validation`. Critic-proposed units enter the same ranked queue rather than extending the budget. If surviving candidates exceed the validation reserve, follow the incomplete-run rule in `SKILL.md`: stop hunting, validate in fingerprint order, retain unvalidated units as unresolved candidates, and never present them as findings.
+El perfil acota el ciclo: una corrida `rapida` tiene exactamente una ola de caza y una pasada de
+crítico final; lo que aparezca después queda `deferred` con el motivo del perfil.
+
+Un presupuesto lo acota igual: antes de cada ola se compara lo que queda contra los cazadores, la
+reserva de validación y los críticos. Si las reservas obligatorias no entran, **no se lanza ningún
+cazador de esa ola** y sus unidades quedan `deferred` con el motivo. Nunca se usa un tope de
+agentes como evidencia de cobertura completa.
